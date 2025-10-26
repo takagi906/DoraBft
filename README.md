@@ -1,3 +1,5 @@
+为了 Enbale rocksdb 的编译
+export CXXFLAGS="$CXXFLAGS -include cstdint -include system_error"
 # Narwhal development now happens at https://github.com/MystenLabs/sui/tree/main/narwhal
 
 For Narwhal (and Bullshark / Tusk) users: Narwhal (together with Bullshark and Tusk) still exists as an independent project. We will be periodically publishing Narwhal packages to `crates.io`.

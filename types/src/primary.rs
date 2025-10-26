@@ -72,7 +72,7 @@ impl Hash for Batch {
     }
 }
 
-#[derive(Builder, Clone, Default, Deserialize, MallocSizeOf, Serialize)]
+#[derive(Builder, Clone, Default, Deserialize, Serialize)]
 #[builder(pattern = "owned", build_fn(skip))]
 pub struct Header {
     pub author: PublicKey,
@@ -384,7 +384,7 @@ impl PartialEq for Vote {
 }
 
 #[serde_as]
-#[derive(Clone, MallocSizeOf, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Certificate {
     pub header: Header,
     aggregated_signature: AggregateSignature,
