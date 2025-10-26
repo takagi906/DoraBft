@@ -11,6 +11,7 @@ Docker/validators/**/logs*
 rust/.idea/*
 .db-*
 benchmark/db-*
+benchmark/myenv
 
 target/
 !/**/src/**/target/
