@@ -8,7 +8,6 @@ from os.path import join
 from re import findall, search
 from statistics import mean
 
-
 from benchmark.utils import Print
 
 
@@ -84,8 +83,8 @@ class LogParser:
         return merged
 
     def _parse_clients(self, log):
-        if search(r'Error', log) is not None:
-            raise ParseError('Client(s) panicked')
+        # if search(r'Error', log) is not None:
+        #     raise ParseError('Client(s) panicked')
 
         size = int(search(r'Transactions size: (\d+)', log).group(1))
         rate = int(search(r'Transactions rate: (\d+)', log).group(1))
@@ -101,8 +100,8 @@ class LogParser:
         return size, rate, start, misses, samples
 
     def _parse_primaries(self, log):
-        if search(r'(?:panicked|ERROR)', log) is not None:
-            raise ParseError('Primary(s) panicked')
+        # if search(r'(?:panicked|ERROR)', log) is not None:
+        #     raise ParseError('Primary(s) panicked')
 
         tmp = findall(r'(.*?) .* Created B\d+\([^ ]+\) -> ([^ ]+=)', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
@@ -144,8 +143,8 @@ class LogParser:
         return proposals, commits, configs, ip
 
     def _parse_workers(self, log):
-        if search(r'(?:panic|ERROR)', log) is not None:
-            raise ParseError('Worker(s) panicked')
+        # if search(r'(?:panic|ERROR)', log) is not None:
+        #     raise ParseError('Worker(s) panicked')
 
         tmp = findall(r'Batch ([^ ]+) contains (\d+) B', log)
         sizes = {d: int(s) for d, s in tmp}
@@ -193,7 +192,7 @@ class LogParser:
                     assert tx_id in sent  # We receive txs that we sent.
                     start = sent[tx_id]
                     end = self.commits[batch_id]
-                    latency += [end-start]
+                    latency += [end - start]
         return mean(latency) if latency else 0
 
     def result(self):

@@ -94,7 +94,9 @@ class CommandMaker:
         assert isinstance(nodes, list)
         assert all(isinstance(x, str) for x in nodes)
         nodes = f'--nodes {" ".join(nodes)}' if nodes else ''
-        return f'./benchmark_client {address} --size {size} --rate {rate} {nodes}'
+        cmd = f'./benchmark_client {address} --size {size} --rate {rate} {nodes}'
+        print(cmd)
+        return cmd
 
     @staticmethod
     def alias_demo_binaries(origin):

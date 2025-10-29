@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 // Copyright (c) 2021, Facebook, Inc. and its affiliates
 // Copyright (c) 2022, Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
@@ -8,11 +9,13 @@ use config::Committee;
 #[cfg(feature = "benchmark")]
 use std::convert::TryInto;
 use std::sync::Arc;
+use tokio::sync::{Mutex, Notify};
 use tokio::{
     sync::watch,
     task::JoinHandle,
     time::{sleep, Duration, Instant},
 };
+use tracing::error;
 use types::{
     error::DagError,
     metered_channel::{Receiver, Sender},
@@ -34,7 +37,7 @@ pub struct BatchMaker {
     /// Receive reconfiguration updates.
     rx_reconfigure: watch::Receiver<ReconfigureNotification>,
     /// Channel to receive transactions from the network.
-    rx_transaction: Receiver<Transaction>,
+    // rx_transaction: Receiver<Transaction>,
     /// Output channel to deliver sealed batches to the `QuorumWaiter`.
     tx_message: Sender<Batch>,
     /// Holds the current batch.
@@ -43,6 +46,50 @@ pub struct BatchMaker {
     current_batch_size: usize,
     /// Metrics handler
     node_metrics: Arc<WorkerMetrics>,
+
+    tx_pool: Arc<TransactionPool>,
+}
+
+// 简单的异步交易池（支持 push / pop_front / len）
+pub struct TransactionPool {
+    inner: Mutex<VecDeque<Transaction>>,
+    notify: Notify,
+}
+
+impl TransactionPool {
+    pub fn new() -> Self {
+        Self {
+            inner: Mutex::new(VecDeque::new()),
+            notify: Notify::new(),
+        }
+    }
+
+    pub async fn push(&self, tx: Transaction) {
+        let mut guard = self.inner.lock().await;
+        guard.push_back(tx);
+        drop(guard);
+        self.notify.notify_one();
+    }
+
+    /// 异步弹出队首元素（若为空则等待通知）
+    pub async fn pop_front(&self) -> Option<Transaction> {
+        loop {
+            // 尝试取出
+            {
+                let mut guard = self.inner.lock().await;
+                if let Some(tx) = guard.pop_front() {
+                    return Some(tx);
+                }
+            }
+            // 等待直到有新事务被 push
+            self.notify.notified().await;
+        }
+    }
+
+    pub async fn len(&self) -> usize {
+        let guard = self.inner.lock().await;
+        guard.len()
+    }
 }
 
 impl BatchMaker {
@@ -57,12 +104,24 @@ impl BatchMaker {
         node_metrics: Arc<WorkerMetrics>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
+            let pool = Arc::new(TransactionPool::new());
+            {
+                let fwd_pool = pool.clone();
+                tokio::spawn(async move {
+                    let mut rx = rx_transaction;
+                    while let Some(tx) = rx.recv().await {
+                        fwd_pool.push(tx).await;
+                        let size = fwd_pool.len().await;
+                        tracing::info!("收到交易，当前池中交易数 = {}", size);
+                    }
+                });
+            }
             Self {
                 committee,
                 batch_size,
                 max_batch_delay,
                 rx_reconfigure,
-                rx_transaction,
+                tx_pool: pool,
                 tx_message,
                 current_batch: Batch(Vec::with_capacity(batch_size * 2)),
                 current_batch_size: 0,
@@ -81,12 +140,15 @@ impl BatchMaker {
         loop {
             tokio::select! {
                 // Assemble client transactions into batches of preset size.
-                Some(transaction) = self.rx_transaction.recv() => {
-                    self.current_batch_size += transaction.len();
-                    self.current_batch.0.push(transaction);
-                    if self.current_batch_size >= self.batch_size {
-                        self.seal(false).await;
-                        timer.as_mut().reset(Instant::now() + self.max_batch_delay);
+                transaction = self.tx_pool.pop_front() => {
+                    if let Some(transaction) = transaction {
+                        self.current_batch_size += transaction.len();
+                        self.current_batch.0.push(transaction);
+                        if self.current_batch_size >= self.batch_size {
+                            error!("Batch size reached: {}", self.current_batch_size);
+                            self.seal(false).await;
+                            timer.as_mut().reset(Instant::now() + self.max_batch_delay);
+                        }
                     }
                 },
 

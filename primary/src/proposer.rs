@@ -112,7 +112,7 @@ impl Proposer {
             &mut self.signature_service,
         )
         .await;
-        debug!("Created {header:?}");
+        debug!("Created header {header:?}");
 
         #[cfg(feature = "benchmark")]
         for digest in header.payload.keys() {

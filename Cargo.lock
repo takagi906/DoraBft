@@ -3322,6 +3322,7 @@ dependencies = [
  "bytes",
  "fastcrypto 0.1.2",
  "futures",
+ "log",
  "multiaddr",
  "mysten-network",
  "narwhal-config",

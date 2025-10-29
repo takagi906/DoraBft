@@ -181,7 +181,8 @@ fn setup_benchmark_telemetry(
     tracing_level: &str,
     network_tracing_level: &str,
 ) -> Result<(), eyre::Report> {
-    let custom_directive = "executor::core=info";
+    let custom_directive = "executor::core=info,anemo_tower=off,anemo::network=off";
+    // let custom_directive = "executor::core=info";
     let filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .parse(format!(

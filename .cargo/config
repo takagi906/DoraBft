@@ -8,3 +8,6 @@ xclippy = [
     "-Wclippy::all",
     "-Wclippy::disallowed_methods",
 ]
+
+[env]
+CXXFLAGS = "-include cstdint -include system_error"

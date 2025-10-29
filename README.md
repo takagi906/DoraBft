@@ -1,5 +1,9 @@
 为了 Enbale rocksdb 的编译
 export CXXFLAGS="$CXXFLAGS -include cstdint -include system_error"
+激活虚拟环境
+source myenv/bin/activate
+
+./benchmark_client http://127.0.0.1:3009/ --size 512 --rate 5 --nodes http://127.0.0.1:3009/ http://127.0.0.1:3011/ http://127.0.0.1:3013/ http://127.0.0.1:3015/
 # Narwhal development now happens at https://github.com/MystenLabs/sui/tree/main/narwhal
 
 For Narwhal (and Bullshark / Tusk) users: Narwhal (together with Bullshark and Tusk) still exists as an independent project. We will be periodically publishing Narwhal packages to `crates.io`.
