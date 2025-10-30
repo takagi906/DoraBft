@@ -36,7 +36,8 @@ class CommandMaker:
         return f'./node generate_network_keys --filename {filename}'
 
     @staticmethod
-    def run_primary(primary_keys, primary_network_keys, worker_keys, committee, workers, store, parameters, debug=False):
+    def run_primary(primary_keys, primary_network_keys, worker_keys, committee, workers, store, parameters,
+                    debug=False):
         assert isinstance(primary_keys, str)
         assert isinstance(primary_network_keys, str)
         assert isinstance(worker_keys, str)
@@ -46,19 +47,19 @@ class CommandMaker:
         assert isinstance(debug, bool)
         v = '-vvv' if debug else '-vv'
         return (f'./node {v} run --primary-keys {primary_keys} --primary-network-keys {primary_network_keys} '
-                f'--worker-keys {worker_keys} --committee {committee} --workers {workers} --store {store} '
+                f'--worker-keys {worker_keys} --committee {committee} --workers {workers} --store {store} --have-tx false '
                 f'--parameters {parameters} primary')
 
     @staticmethod
     def run_no_consensus_primary(
-        primary_keys,
-        primary_network_keys,
-        worker_keys,
-        committee,
-        workers,
-        store,
-        parameters,
-        debug=False
+            primary_keys,
+            primary_network_keys,
+            worker_keys,
+            committee,
+            workers,
+            store,
+            parameters,
+            debug=False
     ):
         assert isinstance(primary_keys, str)
         assert isinstance(primary_network_keys, str)
@@ -68,12 +69,15 @@ class CommandMaker:
         assert isinstance(parameters, str)
         assert isinstance(debug, bool)
         v = '-vvv' if debug else '-vv'
-        return (f'./node {v} run --primary-keys {primary_keys} --primary-network-keys {primary_network_keys} '
-                f'--worker-keys {worker_keys} --committee {committee} --workers {workers} --store {store} '
-                f'--parameters {parameters} primary --consensus-disabled')
+        cmd = (f'./node {v} run --primary-keys {primary_keys} --primary-network-keys {primary_network_keys} '
+               f'--worker-keys {worker_keys} --committee {committee} --workers {workers} --store {store} --have-tx true '
+               f'--parameters {parameters} primary --consensus-disabled')
+        print(cmd)
+        return cmd
 
     @staticmethod
-    def run_worker(primary_keys, primary_network_keys, worker_keys, committee, workers, store, parameters, id, debug=False):
+    def run_worker(primary_keys, primary_network_keys, worker_keys, committee, workers, store, parameters, id, is_first,
+                   debug=False):
         assert isinstance(primary_keys, str)
         assert isinstance(primary_network_keys, str)
         assert isinstance(worker_keys, str)
@@ -82,9 +86,12 @@ class CommandMaker:
         assert isinstance(parameters, str)
         assert isinstance(debug, bool)
         v = '-vvv' if debug else '-vv'
-        return (f'./node {v} run --primary-keys {primary_keys} --primary-network-keys {primary_network_keys} '
-                f'--worker-keys {worker_keys} --committee {committee} --workers {workers} --store {store} '
-                f'--parameters {parameters} worker --id {id}')
+        have_tx = 'true' if is_first else 'false'  # 小写字符串更常见
+        cmd = (f'./node {v} run --primary-keys {primary_keys} --primary-network-keys {primary_network_keys} '
+               f'--worker-keys {worker_keys} --committee {committee} --workers {workers} --store {store} --have-tx {have_tx} '
+               f'--parameters {parameters} worker --id {id}')
+        print(cmd)
+        return cmd
 
     @staticmethod
     def run_client(address, size, rate, nodes):

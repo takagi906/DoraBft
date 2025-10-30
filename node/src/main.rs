@@ -62,6 +62,7 @@ async fn main() -> Result<(), eyre::Report> {
                 .args_from_usage("--workers=<FILE> 'The file containing worker information'")
                 .args_from_usage("--parameters=[FILE] 'The file containing the node parameters'")
                 .args_from_usage("--store=<PATH> 'The path where to create the data store'")
+                .args_from_usage("--have-tx=<BOOL> 'Whether worker has txs'")
                 .subcommand(SubCommand::with_name("primary")
                     .about("Run a single primary")
                     .args_from_usage("-d, --consensus-disabled 'Provide this flag to run a primary node without Tusk'")
@@ -213,7 +214,10 @@ async fn run(
     let workers_file = matches.value_of("workers").unwrap();
     let parameters_file = matches.value_of("parameters");
     let store_path = matches.value_of("store").unwrap();
-
+    let have_tx = matches
+        .value_of("have-tx")
+        .map(|s| s.parse::<bool>().unwrap_or(false))
+        .unwrap_or(false);
     // Read the committee, workers and node's keypair from file.
     let committee = Arc::new(ArcSwap::from_pointee(
         Committee::import(committee_file).context("Failed to load the committee information")?,
@@ -232,7 +236,6 @@ async fn run(
 
     // Make the data store.
     let store = NodeStorage::reopen(store_path);
-
     // The channel returning the result for each transaction's execution.
     let (tx_transaction_confirmation, rx_transaction_confirmation) =
         channel(Node::CHANNEL_CAPACITY);
@@ -273,6 +276,7 @@ async fn run(
                 &store,
                 parameters.clone(),
                 &registry,
+                have_tx,
             )
         }
         _ => unreachable!(),

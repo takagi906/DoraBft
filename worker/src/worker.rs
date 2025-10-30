@@ -59,6 +59,7 @@ pub struct Worker {
     parameters: Parameters,
     /// The persistent storage.
     store: Store<BatchDigest, Batch>,
+    have_tx: bool,
 }
 
 impl Worker {
@@ -71,6 +72,7 @@ impl Worker {
         parameters: Parameters,
         store: Store<BatchDigest, Batch>,
         metrics: Metrics,
+        have_tx: bool,
     ) -> Vec<JoinHandle<()>> {
         // Define a worker instance.
         let worker = Self {
@@ -81,6 +83,7 @@ impl Worker {
             worker_cache,
             parameters,
             store,
+            have_tx,
         };
 
         let node_metrics = Arc::new(metrics.worker_metrics.unwrap());
@@ -287,7 +290,8 @@ impl Worker {
     ) -> Vec<JoinHandle<()>> {
         let (tx_batch_maker, rx_batch_maker) =
             channel(CHANNEL_CAPACITY, &channel_metrics.tx_batch_maker);
-        let (tx_quorum_waiter, rx_quorum_waiter) = channel(2, &channel_metrics.tx_quorum_waiter);
+        let (tx_quorum_waiter, rx_quorum_waiter) =
+            channel(CHANNEL_CAPACITY, &channel_metrics.tx_quorum_waiter);
         let (tx_client_processor, rx_client_processor) =
             channel(CHANNEL_CAPACITY, &channel_metrics.tx_client_processor);
 
@@ -323,6 +327,8 @@ impl Worker {
             node_metrics,
             P2pNetwork::new(network.clone()),
             self.worker_cache.clone(),
+            true,
+            self.have_tx,
         );
 
         // The `QuorumWaiter` waits for 2f authorities to acknowledge reception of the batch. It then forwards

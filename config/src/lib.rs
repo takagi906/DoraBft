@@ -259,7 +259,7 @@ impl Default for BlockSynchronizerParameters {
 impl Default for Parameters {
     fn default() -> Self {
         Self {
-            header_size: 1_000,
+            header_size: 32,
             max_header_delay: Duration::from_millis(100),
             gc_depth: 50,
             sync_retry_delay: Duration::from_millis(5_000),

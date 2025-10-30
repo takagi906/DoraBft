@@ -17,7 +17,7 @@ use tokio::{
     task::JoinHandle,
     time::{sleep, Duration, Instant},
 };
-use tracing::error;
+use tracing::{debug, error};
 use types::{
     error::DagError,
     metered_channel::{Receiver, Sender},
@@ -69,6 +69,8 @@ pub struct BatchMaker {
     worker_cache: SharedWorkerCache,
 
     is_send: bool,
+
+    have_transaction: bool,
 }
 
 // 简单的异步交易池（支持 push / pop_front / len）
@@ -76,6 +78,14 @@ pub struct TransactionPool {
     inner: Mutex<BTreeMap<String, Transaction>>,
     notify: Notify,
     prefix: String,
+}
+
+fn make_sample_tx(id: u128) -> Transaction {
+    let mut tx = Vec::with_capacity(1 + 8 + 16);
+    tx.push(0u8);
+    tx.extend_from_slice(&(id as u64).to_be_bytes()); // 保留低 8 字节作为示例 id
+    tx.extend_from_slice(&Uuid::new_v4().as_u128().to_be_bytes()); // 16 字节随机负载
+    tx
 }
 
 impl TransactionPool {
@@ -160,11 +170,19 @@ impl BatchMaker {
         node_metrics: Arc<WorkerMetrics>,
         network: P2pNetwork,
         worker_cache: SharedWorkerCache,
+        is_mock: bool,
+        have_transaction: bool,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             let pool = Arc::new(TransactionPool::new(gen_uuid_string()));
             let mut tx_id = 1;
-            {
+            if is_mock && have_transaction {
+                let fwd_pool = pool.clone();
+                for i in 1u128..=10000u128 {
+                    let tx = make_sample_tx(i);
+                    pool.push_our_batch(tx, i).await;
+                }
+            } else {
                 let fwd_pool = pool.clone();
                 tokio::spawn(async move {
                     let mut rx = rx_transaction;
@@ -172,7 +190,6 @@ impl BatchMaker {
                         fwd_pool.push_our_batch(tx, tx_id).await;
                         tx_id += 1;
                         let size = fwd_pool.len().await;
-                        tracing::info!("收到交易，当前池中交易数 = {}", size);
                     }
                 });
             }
@@ -182,7 +199,7 @@ impl BatchMaker {
                     let mut rx = rx_unload_batch;
                     while let Some(tx) = rx.recv().await {
                         for load_tx in tx.0.into_iter() {
-                            tracing::info!("收到其他节点的交易，交易的key = {:?}", load_tx.clone());
+                            // tracing::info!("收到其他节点的交易，交易的key = {:?}", load_tx.clone());
                             fwd_pool.push_others_batch(load_tx.tx, load_tx.key).await;
                         }
                     }
@@ -203,6 +220,7 @@ impl BatchMaker {
                 network,
                 worker_cache,
                 is_send: false,
+                have_transaction,
             }
             .run()
             .await;
@@ -234,9 +252,11 @@ impl BatchMaker {
                     if let Some((id, transaction)) = opt {
                         self.current_batch_size += transaction.len();
                         self.current_batch.0.push(transaction);
-                        if self.tx_pool.len().await>100 && !self.is_send{
+                        tracing::error!("meet a transaction = {}", self.current_batch_size);
+                        if self.tx_pool.len().await>100 && !self.is_send && self.have_transaction {
                             self.is_send = true;
                             self.send_parts_by_ratio(ratios.clone()).await;
+                            error!("BroadCast Batch size reached: {}", self.current_batch_size);
                         }
                         if self.current_batch_size >= self.batch_size {
                             error!("Batch size reached: {}", self.current_batch_size);

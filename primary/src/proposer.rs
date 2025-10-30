@@ -245,6 +245,9 @@ impl Proposer {
                     // called `max_header_delay`.
                     debug!("Timer expired for round {}", self.round);
                 }
+                if enough_digests {
+                    debug!("Enough digests for round {}", self.round);
+                }
 
                 // Advance to the next round.
                 self.round += 1;
@@ -325,6 +328,7 @@ impl Proposer {
                 Some((digest, worker_id)) = self.rx_workers.recv() => {
                     self.payload_size += Digest::from(digest).size();
                     self.digests.push((digest, worker_id));
+                   tracing::error!("Received digest from worker {}", worker_id);
                 }
 
                 // Check whether the timer expired.

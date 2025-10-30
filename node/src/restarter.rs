@@ -91,6 +91,7 @@ impl NodeRestarter {
                 &store,
                 parameters.clone(),
                 registry,
+                false,
             );
 
             handles.extend(primary_handles);

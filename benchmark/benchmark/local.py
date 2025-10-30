@@ -131,6 +131,7 @@ class LocalBench:
 
             # Run the workers (except the faulty ones).
             for i, addresses in enumerate(workers_addresses):
+                is_first = (i == 0)
                 for (id, address) in addresses:
                     cmd = CommandMaker.run_worker(
                         PathMaker.primary_key_file(i),
@@ -141,6 +142,7 @@ class LocalBench:
                         PathMaker.db_path(i, id),
                         PathMaker.parameters_file(),
                         id,  # The worker's id.
+                        is_first,
                         debug=debug
                     )
                     log_file = PathMaker.worker_log_file(i, id)

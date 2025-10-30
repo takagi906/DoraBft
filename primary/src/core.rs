@@ -10,7 +10,7 @@ use crate::{
 use async_recursion::async_recursion;
 use config::{Committee, Epoch, SharedWorkerCache};
 use crypto::{PublicKey, Signature};
-use fastcrypto::{Hash as _, SignatureService};
+use fastcrypto::{Digest, Hash as _, SignatureService};
 use network::{CancelOnDropHandler, P2pNetwork, ReliableNetwork};
 use std::{
     collections::{HashMap, HashSet},
@@ -85,6 +85,8 @@ pub struct Core {
     cancel_handlers: HashMap<Round, Vec<CancelOnDropHandler<anyhow::Result<anemo::Response<()>>>>>,
     /// Metrics handler
     metrics: Arc<PrimaryMetrics>,
+
+    total_size: usize,
 }
 
 impl Core {
@@ -138,6 +140,7 @@ impl Core {
                 network: primary_network,
                 cancel_handlers: HashMap::with_capacity(2 * gc_depth as usize),
                 metrics,
+                total_size: 0,
             }
             .run()
             .await;
@@ -453,6 +456,19 @@ impl Core {
         } else {
             "other"
         };
+        if certificate_source == "own" {
+            let mut s = 0;
+            for d in certificate.header.payload.keys() {
+                s += d.1;
+            }
+            if s != 0 {
+                self.total_size += s;
+                error!(
+                    "Total size of payloads in own certificates: {}",
+                    self.total_size
+                );
+            }
+        }
         self.metrics
             .certificates_processed
             .with_label_values(&[&certificate.epoch().to_string(), certificate_source])

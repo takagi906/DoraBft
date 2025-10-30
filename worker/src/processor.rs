@@ -6,6 +6,7 @@ use config::WorkerId;
 use fastcrypto::Hash;
 use store::Store;
 use tokio::{sync::watch, task::JoinHandle};
+use tracing::debug;
 use types::{
     error::DagError,
     metered_channel::{Receiver, Sender},
@@ -41,8 +42,8 @@ impl Processor {
                     Some(batch) = rx_batch.recv() => {
                         // Hash the batch.
                         let digest = batch.digest();
-
                         // Store the batch.
+                        let num = batch.0.len();
                         store.write(digest, batch).await;
 
                         // Deliver the batch's digest.

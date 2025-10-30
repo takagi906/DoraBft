@@ -376,6 +376,7 @@ impl Node {
         parameters: Parameters,
         // The prometheus metrics Registry
         registry: &Registry,
+        have_tx: bool,
     ) -> Vec<JoinHandle<()>> {
         let mut handles = Vec::new();
 
@@ -391,6 +392,7 @@ impl Node {
                 parameters.clone(),
                 store.batch_store.clone(),
                 metrics.clone(),
+                have_tx,
             );
             handles.extend(worker_handles);
         }

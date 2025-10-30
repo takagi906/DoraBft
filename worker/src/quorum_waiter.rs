@@ -89,9 +89,7 @@ impl QuorumWaiter {
                         .collect();
                     let (primary_names, worker_names): (Vec<_>, _) = workers.into_iter().unzip();
                     let message = WorkerMessage::Batch(batch.clone());
-                    tracing::error!("quorum Sending message to peer {:?}", worker_names);
                     let handlers = self.network.broadcast(worker_names, &message).await;
-
                     // Collect all the handlers to receive acknowledgements.
                     let mut wait_for_quorum: FuturesUnordered<_> = primary_names
                         .into_iter()
@@ -112,6 +110,7 @@ impl QuorumWaiter {
                             Some(stake) = wait_for_quorum.next() => {
                                 total_stake += stake;
                                 if total_stake >= threshold {
+                                    tracing::error!("finish batch size {:?} to workers:", batch.0.len());
                                     if self.tx_batch.send(batch).await.is_err() {
                                         tracing::debug!("{}", DagError::ShuttingDown);
                                     }

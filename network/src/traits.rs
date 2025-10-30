@@ -86,7 +86,6 @@ pub trait ReliableNetwork<Request: Clone + Send + Sync> {
     ) -> Vec<CancelOnDropHandler<anyhow::Result<anemo::Response<Self::Response>>>> {
         let mut handlers = Vec::new();
         for peer in peers {
-            tracing::error!("Sending message to peer {:?}", peer);
             let handle = self.send(peer, message).await;
             handlers.push(handle);
         }

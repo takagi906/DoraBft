@@ -45,7 +45,7 @@ pub struct LoadTransaction {
 #[derive(
     Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, Hash, PartialOrd, Ord, MallocSizeOf,
 )]
-pub struct BatchDigest(pub [u8; DIGEST_LEN]);
+pub struct BatchDigest(pub [u8; DIGEST_LEN], pub usize);
 
 impl fmt::Debug for BatchDigest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -66,8 +66,8 @@ impl From<BatchDigest> for Digest {
 }
 
 impl BatchDigest {
-    pub fn new(val: [u8; DIGEST_LEN]) -> BatchDigest {
-        BatchDigest(val)
+    pub fn new(val: [u8; DIGEST_LEN], size: usize) -> BatchDigest {
+        BatchDigest(val, size)
     }
 }
 
@@ -75,9 +75,10 @@ impl Hash for Batch {
     type TypedDigest = BatchDigest;
 
     fn digest(&self) -> Self::TypedDigest {
-        BatchDigest::new(fastcrypto::blake2b_256(|hasher| {
-            self.0.iter().for_each(|tx| hasher.update(tx))
-        }))
+        BatchDigest::new(
+            fastcrypto::blake2b_256(|hasher| self.0.iter().for_each(|tx| hasher.update(tx))),
+            self.0.len(),
+        )
     }
 }
 
