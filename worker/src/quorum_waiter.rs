@@ -89,6 +89,7 @@ impl QuorumWaiter {
                         .collect();
                     let (primary_names, worker_names): (Vec<_>, _) = workers.into_iter().unzip();
                     let message = WorkerMessage::Batch(batch.clone());
+                    tracing::error!("quorum Sending message to peer {:?}", worker_names);
                     let handlers = self.network.broadcast(worker_names, &message).await;
 
                     // Collect all the handlers to receive acknowledgements.

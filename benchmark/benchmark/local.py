@@ -84,7 +84,7 @@ class LocalBench:
 
             worker_keys = []
             worker_key_files = [PathMaker.worker_key_file(
-                i) for i in range(self.workers*nodes)]
+                i) for i in range(self.workers * nodes)]
             for filename in worker_key_files:
                 cmd = CommandMaker.generate_network_key(filename).split()
                 subprocess.run(cmd, check=True)
@@ -94,7 +94,7 @@ class LocalBench:
             # 2 ports used per authority so add 2 * num authorities to base port
             worker_cache = LocalWorkerCache(
                 primary_names, worker_names, self.BASE_PORT +
-                (2 * len(primary_names)),
+                                             (2 * len(primary_names)),
                 self.workers)
             worker_cache.print(PathMaker.workers_file())
 
@@ -103,16 +103,16 @@ class LocalBench:
             # Run the clients (they will wait for the nodes to be ready).
             workers_addresses = worker_cache.workers_addresses(self.faults)
             rate_share = ceil(rate / worker_cache.workers())
-            for i, addresses in enumerate(workers_addresses):
-                for (id, address) in addresses:
-                    cmd = CommandMaker.run_client(
-                        address,
-                        self.tx_size,
-                        rate_share,
-                        [x for y in workers_addresses for _, x in y]
-                    )
-                    log_file = PathMaker.client_log_file(i, id)
-                    self._background_run(cmd, log_file)
+            # for i, addresses in enumerate(workers_addresses):
+            #     for (id, address) in addresses:
+            #         cmd = CommandMaker.run_client(
+            #             address,
+            #             self.tx_size,
+            #             rate_share,
+            #             [x for y in workers_addresses for _, x in y]
+            #         )
+            #         log_file = PathMaker.client_log_file(i, id)
+            #         self._background_run(cmd, log_file)
 
             # Run the primaries (except the faulty ones).
             for i, address in enumerate(committee.primary_addresses(self.faults)):
@@ -135,7 +135,7 @@ class LocalBench:
                     cmd = CommandMaker.run_worker(
                         PathMaker.primary_key_file(i),
                         PathMaker.primary_network_key_file(i),
-                        PathMaker.worker_key_file(i*self.workers + id),
+                        PathMaker.worker_key_file(i * self.workers + id),
                         PathMaker.committee_file(),
                         PathMaker.workers_file(),
                         PathMaker.db_path(i, id),

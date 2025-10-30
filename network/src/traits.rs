@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use crypto::NetworkPublicKey;
 use rand::prelude::{SliceRandom, SmallRng};
 use tokio::task::JoinHandle;
+use tracing::log::error;
 use types::{Batch, BatchDigest};
 
 pub trait UnreliableNetwork<Request: Clone + Send + Sync> {
@@ -85,6 +86,7 @@ pub trait ReliableNetwork<Request: Clone + Send + Sync> {
     ) -> Vec<CancelOnDropHandler<anyhow::Result<anemo::Response<Self::Response>>>> {
         let mut handlers = Vec::new();
         for peer in peers {
+            tracing::error!("Sending message to peer {:?}", peer);
             let handle = self.send(peer, message).await;
             handlers.push(handle);
         }

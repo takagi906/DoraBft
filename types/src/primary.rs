@@ -32,6 +32,15 @@ pub type Round = u64;
 pub type Transaction = Vec<u8>;
 #[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq, Eq, Arbitrary)]
 pub struct Batch(pub Vec<Transaction>);
+#[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq, Eq)]
+pub struct LoadBatch(pub Vec<LoadTransaction>);
+
+// Add to `types/src/primary.rs`
+#[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq, Eq)]
+pub struct LoadTransaction {
+    pub id: u128,
+    pub tx: Transaction,
+}
 
 #[derive(
     Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, Hash, PartialOrd, Ord, MallocSizeOf,

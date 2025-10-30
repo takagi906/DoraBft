@@ -101,6 +101,8 @@ impl Worker {
             channel(CHANNEL_CAPACITY, &channel_metrics.tx_synchronizer);
         let (tx_request_batches_rpc, rx_request_batches_rpc) =
             channel(CHANNEL_CAPACITY, &channel_metrics.tx_request_batches_rpc);
+        let (tx_unload_batch, rx_unload_batch) =
+            channel(CHANNEL_CAPACITY, &channel_metrics.tx_request_batches_rpc);
 
         let worker_service = WorkerToWorkerServer::new(WorkerReceiverHandler {
             tx_processor: tx_worker_processor.clone(),
@@ -281,8 +283,7 @@ impl Worker {
     ) -> Vec<JoinHandle<()>> {
         let (tx_batch_maker, rx_batch_maker) =
             channel(CHANNEL_CAPACITY, &channel_metrics.tx_batch_maker);
-        let (tx_quorum_waiter, rx_quorum_waiter) =
-            channel(CHANNEL_CAPACITY, &channel_metrics.tx_quorum_waiter);
+        let (tx_quorum_waiter, rx_quorum_waiter) = channel(2, &channel_metrics.tx_quorum_waiter);
         let (tx_client_processor, rx_client_processor) =
             channel(CHANNEL_CAPACITY, &channel_metrics.tx_client_processor);
 
@@ -306,6 +307,8 @@ impl Worker {
         // (in a reliable manner) the batches to all other workers that share the same `id` as us. Finally, it
         // gathers the 'cancel handlers' of the messages and send them to the `QuorumWaiter`.
         let batch_maker_handle = BatchMaker::spawn(
+            self.primary_name.clone(),
+            self.id,
             (*(*(*self.committee).load()).clone()).clone(),
             self.parameters.batch_size,
             self.parameters.max_batch_delay,
@@ -313,6 +316,8 @@ impl Worker {
             /* rx_transaction */ rx_batch_maker,
             /* tx_message */ tx_quorum_waiter,
             node_metrics,
+            P2pNetwork::new(network.clone()),
+            self.worker_cache.clone(),
         );
 
         // The `QuorumWaiter` waits for 2f authorities to acknowledge reception of the batch. It then forwards
@@ -325,7 +330,7 @@ impl Worker {
             tx_reconfigure.subscribe(),
             /* rx_message */ rx_quorum_waiter,
             /* tx_batch */ tx_client_processor,
-            P2pNetwork::new(network),
+            P2pNetwork::new(network.clone()),
         );
 
         // The `Processor` hashes and stores the batch. It then forwards the batch's digest to the `PrimaryConnector`

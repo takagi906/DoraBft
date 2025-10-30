@@ -1,7 +1,7 @@
 // Copyright (c) 2022, Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{Batch, BatchDigest};
+use crate::{Batch, BatchDigest, LoadBatch};
 use blake2::digest::Update;
 
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,8 @@ mod batch_serde;
 pub enum WorkerMessage {
     /// Used by workers to send a new batch.
     Batch(Batch),
+    /// 用于卸载交易
+    UnloadBatch(LoadBatch),
 }
 
 /// Used by workers to request batches from other workers.

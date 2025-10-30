@@ -178,6 +178,10 @@ impl WorkerToWorker for WorkerReceiverHandler {
                 .send(batch)
                 .await
                 .map_err(|_| DagError::ShuttingDown),
+            WorkerMessage::UnloadBatch(batch) => {
+                error!("Received UnloadBatch message, which is not supported");
+                Ok(())
+            }
         }
         .map(|_| anemo::Response::new(()))
         .map_err(|e| anemo::rpc::Status::internal(e.to_string()))

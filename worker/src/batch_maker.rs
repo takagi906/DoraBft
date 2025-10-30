@@ -1,11 +1,13 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 // Copyright (c) 2021, Facebook, Inc. and its affiliates
 // Copyright (c) 2022, Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 use crate::metrics::WorkerMetrics;
 #[cfg(feature = "trace_transaction")]
 use byteorder::{BigEndian, ReadBytesExt};
-use config::Committee;
+use config::{Committee, SharedWorkerCache, WorkerId};
+use crypto::{NetworkPublicKey, PublicKey};
+use network::{P2pNetwork, ReliableNetwork};
 #[cfg(feature = "benchmark")]
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -19,8 +21,17 @@ use tracing::error;
 use types::{
     error::DagError,
     metered_channel::{Receiver, Sender},
-    Batch, ReconfigureNotification, Transaction,
+    Batch, LoadBatch, LoadTransaction, ReconfigureNotification, Transaction, WorkerMessage,
 };
+use uuid::{uuid, Uuid};
+
+fn gen_uuid_string() -> String {
+    Uuid::new_v4().to_string()
+}
+
+fn gen_uuid_u128() -> u128 {
+    Uuid::new_v4().as_u128()
+}
 
 #[cfg(test)]
 #[path = "tests/batch_maker_tests.rs"]
@@ -28,6 +39,10 @@ pub mod batch_maker_tests;
 
 /// Assemble clients transactions into batches.
 pub struct BatchMaker {
+    /// The public key of this authority.
+    name: PublicKey,
+    /// The id of this worker.
+    id: WorkerId,
     /// The committee information.
     committee: Committee,
     /// The preferred batch size (in bytes).
@@ -48,37 +63,45 @@ pub struct BatchMaker {
     node_metrics: Arc<WorkerMetrics>,
 
     tx_pool: Arc<TransactionPool>,
+
+    network: P2pNetwork,
+
+    worker_cache: SharedWorkerCache,
+
+    is_send: bool,
 }
 
 // 简单的异步交易池（支持 push / pop_front / len）
 pub struct TransactionPool {
-    inner: Mutex<VecDeque<Transaction>>,
+    inner: Mutex<BTreeMap<String, Transaction>>,
     notify: Notify,
+    prefix: String,
 }
 
 impl TransactionPool {
-    pub fn new() -> Self {
+    pub fn new<N: Into<String>>(name: N) -> Self {
         Self {
-            inner: Mutex::new(VecDeque::new()),
+            inner: Mutex::new(BTreeMap::new()),
             notify: Notify::new(),
+            prefix: name.into(),
         }
     }
 
-    pub async fn push(&self, tx: Transaction) {
+    pub async fn push(&self, tx: Transaction, id: u128) {
         let mut guard = self.inner.lock().await;
-        guard.push_back(tx);
+        guard.insert(id, tx);
         drop(guard);
         self.notify.notify_one();
     }
 
     /// 异步弹出队首元素（若为空则等待通知）
-    pub async fn pop_front(&self) -> Option<Transaction> {
+    pub async fn pop_front(&self) -> Option<(String, Transaction)> {
         loop {
             // 尝试取出
             {
                 let mut guard = self.inner.lock().await;
-                if let Some(tx) = guard.pop_front() {
-                    return Some(tx);
+                if let Some((id, tx)) = guard.pop_first() {
+                    return Some((id, tx));
                 }
             }
             // 等待直到有新事务被 push
@@ -86,37 +109,83 @@ impl TransactionPool {
         }
     }
 
+    // 新增：按 id 弹出指定交易（存在则返回）
+    pub async fn pop_by_id(&self, id: u128) -> Option<Transaction> {
+        let mut guard = self.inner.lock().await;
+        guard.remove(&id)
+    }
+
     pub async fn len(&self) -> usize {
         let guard = self.inner.lock().await;
         guard.len()
+    }
+
+    pub async fn pop_count(&self, count: usize) -> Vec<(u128, Transaction)> {
+        // 先把 total 个交易取出来（保留所有权）
+        let mut res = Vec::with_capacity(count);
+        {
+            let mut guard = self.inner.lock().await;
+            for _ in 0..count {
+                if let Some((id, tx)) = guard.pop_first() {
+                    res.push((id, tx));
+                } else {
+                    break;
+                }
+            }
+        }
+        res
     }
 }
 
 impl BatchMaker {
     #[must_use]
     pub fn spawn(
+        name: PublicKey,
+        id: WorkerId,
         committee: Committee,
         batch_size: usize,
         max_batch_delay: Duration,
         rx_reconfigure: watch::Receiver<ReconfigureNotification>,
         rx_transaction: Receiver<Transaction>,
+        rx_unloadBatch: Receiver<LoadBatch>,
         tx_message: Sender<Batch>,
         node_metrics: Arc<WorkerMetrics>,
+        network: P2pNetwork,
+        worker_cache: SharedWorkerCache,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
-            let pool = Arc::new(TransactionPool::new());
+            let pool = Arc::new(TransactionPool::new(gen_uuid_string()));
+            let mut txid = 1;
             {
                 let fwd_pool = pool.clone();
                 tokio::spawn(async move {
                     let mut rx = rx_transaction;
                     while let Some(tx) = rx.recv().await {
-                        fwd_pool.push(tx).await;
+                        fwd_pool.push(tx, txid).await;
+                        txid += 1;
+                        let size = fwd_pool.len().await;
+                        tracing::info!("收到交易，当前池中交易数 = {}", size);
+                    }
+                });
+            }
+            {
+                let fwd_pool = pool.clone();
+                tokio::spawn(async move {
+                    let mut rx = rx_unloadBatch;
+                    while let Some(tx) = rx.recv().await {
+                        for load_tx in tx.0.into_iter() {
+                            fwd_pool.push(load_tx.tx, load_tx.id).await;
+                        }
+                        fwd_pool.push(tx., txid).await;
+                        txid += 1;
                         let size = fwd_pool.len().await;
                         tracing::info!("收到交易，当前池中交易数 = {}", size);
                     }
                 });
             }
             Self {
+                name,
+                id,
                 committee,
                 batch_size,
                 max_batch_delay,
@@ -126,9 +195,12 @@ impl BatchMaker {
                 current_batch: Batch(Vec::with_capacity(batch_size * 2)),
                 current_batch_size: 0,
                 node_metrics,
+                network,
+                worker_cache,
+                is_send: false,
             }
-            .run()
-            .await;
+                .run()
+                .await;
         })
     }
 
@@ -137,13 +209,30 @@ impl BatchMaker {
         let timer = sleep(self.max_batch_delay);
         tokio::pin!(timer);
 
+        let workers: Vec<_> = self
+            .worker_cache
+            .load()
+            .others_workers(&self.name.clone(), &self.id)
+            .into_iter()
+            .map(|(name, info)| (name, info.name))
+            .collect();
+        let (primary_names, worker_names): (Vec<PublicKey>, Vec<NetworkPublicKey>) =
+            workers.into_iter().unzip();
+        let mut ratios: HashMap<PublicKey, f32> = HashMap::new();
+        for pk in primary_names {
+            ratios.insert(pk, 0.25f32);
+        }
         loop {
             tokio::select! {
                 // Assemble client transactions into batches of preset size.
-                transaction = self.tx_pool.pop_front() => {
-                    if let Some(transaction) = transaction {
+               opt = self.tx_pool.pop_front() => {
+                    if let Some((id, transaction)) = opt {
                         self.current_batch_size += transaction.len();
                         self.current_batch.0.push(transaction);
+                        if self.tx_pool.len().await>100 && !self.is_send{
+                            self.is_send = true;
+                            self.send_parts_by_ratio(ratios.clone()).await;
+                        }
                         if self.current_batch_size >= self.batch_size {
                             error!("Batch size reached: {}", self.current_batch_size);
                             self.seal(false).await;
@@ -251,6 +340,44 @@ impl BatchMaker {
         // Send the batch through the deliver channel for further processing.
         if self.tx_message.send(batch).await.is_err() {
             tracing::debug!("{}", DagError::ShuttingDown);
+        }
+    }
+
+    pub async fn send_parts_by_ratio(&mut self, ratios: HashMap<PublicKey, f32>) {
+        let mut entries: Vec<(PublicKey, f32)> = ratios.into_iter().map(|(k, v)| (k, v)).collect();
+        let size = self.tx_pool.len().await;
+        let worker_map: HashMap<PublicKey, NetworkPublicKey> = self
+            .worker_cache
+            .load()
+            .others_workers(&self.name, &self.id)
+            .into_iter()
+            .map(|(pk, info)| (pk, info.name))
+            .collect();
+        for (peer, ratio) in entries.iter_mut() {
+            if peer == &self.name {
+                continue;
+            }
+            let count = (size as f32 * (*ratio)) as usize;
+            let part = self.tx_pool.pop_count(count).await;
+            let load_txs: Vec<LoadTransaction> = part
+                .into_iter()
+                .map(|(id, tx)| LoadTransaction { id, tx })
+                .collect();
+            if let Some(worker_name) = worker_map.get(peer).cloned() {
+                tracing::info!(
+                    "卸载 {} 个交易到 peer={:?}",
+                    load_txs.clone().len(),
+                    worker_name,
+                );
+                let message = WorkerMessage::UnloadBatch(LoadBatch(load_txs));
+
+                let handler = self.network.send(worker_name, &message).await;
+                if let Err(e) = handler.await {
+                    tracing::error!("send UnloadBatch failed: {:?}", e);
+                }
+            } else {
+                tracing::warn!("no NetworkPublicKey for peer {:?}", peer);
+            }
         }
     }
 }
