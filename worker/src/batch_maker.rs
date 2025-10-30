@@ -87,9 +87,17 @@ impl TransactionPool {
         }
     }
 
-    pub async fn push(&self, tx: Transaction, id: u128) {
+    pub async fn push_our_batch(&self, tx: Transaction, id: u128) {
+        let key = format!("{}:{}", self.prefix, id);
         let mut guard = self.inner.lock().await;
-        guard.insert(id, tx);
+        guard.insert(key, tx);
+        drop(guard);
+        self.notify.notify_one();
+    }
+
+    pub async fn push_others_batch(&self, tx: Transaction, key: String) {
+        let mut guard = self.inner.lock().await;
+        guard.insert(key, tx);
         drop(guard);
         self.notify.notify_one();
     }
@@ -100,8 +108,8 @@ impl TransactionPool {
             // 尝试取出
             {
                 let mut guard = self.inner.lock().await;
-                if let Some((id, tx)) = guard.pop_first() {
-                    return Some((id, tx));
+                if let Some((key, tx)) = guard.pop_first() {
+                    return Some((key, tx));
                 }
             }
             // 等待直到有新事务被 push
@@ -109,10 +117,10 @@ impl TransactionPool {
         }
     }
 
-    // 新增：按 id 弹出指定交易（存在则返回）
-    pub async fn pop_by_id(&self, id: u128) -> Option<Transaction> {
+    // 新增：按 key 弹出指定交易（存在则返回）
+    pub async fn pop_by_id(&self, key: String) -> Option<Transaction> {
         let mut guard = self.inner.lock().await;
-        guard.remove(&id)
+        guard.remove(&key)
     }
 
     pub async fn len(&self) -> usize {
@@ -120,14 +128,14 @@ impl TransactionPool {
         guard.len()
     }
 
-    pub async fn pop_count(&self, count: usize) -> Vec<(u128, Transaction)> {
+    pub async fn pop_count(&self, count: usize) -> Vec<(String, Transaction)> {
         // 先把 total 个交易取出来（保留所有权）
         let mut res = Vec::with_capacity(count);
         {
             let mut guard = self.inner.lock().await;
             for _ in 0..count {
-                if let Some((id, tx)) = guard.pop_first() {
-                    res.push((id, tx));
+                if let Some((key, tx)) = guard.pop_first() {
+                    res.push((key, tx));
                 } else {
                     break;
                 }
@@ -147,7 +155,7 @@ impl BatchMaker {
         max_batch_delay: Duration,
         rx_reconfigure: watch::Receiver<ReconfigureNotification>,
         rx_transaction: Receiver<Transaction>,
-        rx_unloadBatch: Receiver<LoadBatch>,
+        rx_unload_batch: Receiver<LoadBatch>,
         tx_message: Sender<Batch>,
         node_metrics: Arc<WorkerMetrics>,
         network: P2pNetwork,
@@ -155,14 +163,14 @@ impl BatchMaker {
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             let pool = Arc::new(TransactionPool::new(gen_uuid_string()));
-            let mut txid = 1;
+            let mut tx_id = 1;
             {
                 let fwd_pool = pool.clone();
                 tokio::spawn(async move {
                     let mut rx = rx_transaction;
                     while let Some(tx) = rx.recv().await {
-                        fwd_pool.push(tx, txid).await;
-                        txid += 1;
+                        fwd_pool.push_our_batch(tx, tx_id).await;
+                        tx_id += 1;
                         let size = fwd_pool.len().await;
                         tracing::info!("收到交易，当前池中交易数 = {}", size);
                     }
@@ -171,15 +179,12 @@ impl BatchMaker {
             {
                 let fwd_pool = pool.clone();
                 tokio::spawn(async move {
-                    let mut rx = rx_unloadBatch;
+                    let mut rx = rx_unload_batch;
                     while let Some(tx) = rx.recv().await {
                         for load_tx in tx.0.into_iter() {
-                            fwd_pool.push(load_tx.tx, load_tx.id).await;
+                            tracing::info!("收到其他节点的交易，交易的key = {:?}", load_tx.clone());
+                            fwd_pool.push_others_batch(load_tx.tx, load_tx.key).await;
                         }
-                        fwd_pool.push(tx., txid).await;
-                        txid += 1;
-                        let size = fwd_pool.len().await;
-                        tracing::info!("收到交易，当前池中交易数 = {}", size);
                     }
                 });
             }
@@ -199,8 +204,8 @@ impl BatchMaker {
                 worker_cache,
                 is_send: false,
             }
-                .run()
-                .await;
+            .run()
+            .await;
         })
     }
 
@@ -361,7 +366,7 @@ impl BatchMaker {
             let part = self.tx_pool.pop_count(count).await;
             let load_txs: Vec<LoadTransaction> = part
                 .into_iter()
-                .map(|(id, tx)| LoadTransaction { id, tx })
+                .map(|(key, tx)| LoadTransaction { key, tx })
                 .collect();
             if let Some(worker_name) = worker_map.get(peer).cloned() {
                 tracing::info!(

@@ -38,7 +38,7 @@ pub struct LoadBatch(pub Vec<LoadTransaction>);
 // Add to `types/src/primary.rs`
 #[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq, Eq)]
 pub struct LoadTransaction {
-    pub id: u128,
+    pub key: String,
     pub tx: Transaction,
 }
 

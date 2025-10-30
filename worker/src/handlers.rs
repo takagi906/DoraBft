@@ -20,7 +20,7 @@ use tracing::{debug, error, info, trace};
 use types::{
     error::DagError,
     metered_channel::{Receiver, Sender},
-    Batch, BatchDigest, PrimaryToWorker, PrimaryWorkerMessage, ReconfigureNotification,
+    Batch, BatchDigest, LoadBatch, PrimaryToWorker, PrimaryWorkerMessage, ReconfigureNotification,
     RequestBatchRequest, RequestBatchResponse, WorkerBatchRequest, WorkerBatchResponse,
     WorkerMessage, WorkerPrimaryMessage, WorkerSynchronizeMessage, WorkerToWorker,
 };
@@ -162,6 +162,7 @@ impl ChildRpcSender {
 #[derive(Clone)]
 pub struct WorkerReceiverHandler {
     pub tx_processor: Sender<Batch>,
+    pub tx_unload_batch: Sender<LoadBatch>,
     pub store: Store<BatchDigest, Batch>,
 }
 
@@ -178,10 +179,11 @@ impl WorkerToWorker for WorkerReceiverHandler {
                 .send(batch)
                 .await
                 .map_err(|_| DagError::ShuttingDown),
-            WorkerMessage::UnloadBatch(batch) => {
-                error!("Received UnloadBatch message, which is not supported");
-                Ok(())
-            }
+            WorkerMessage::UnloadBatch(localBatch) => self
+                .tx_unload_batch
+                .send(localBatch)
+                .await
+                .map_err(|_| DagError::ShuttingDown),
         }
         .map(|_| anemo::Response::new(()))
         .map_err(|e| anemo::rpc::Status::internal(e.to_string()))

@@ -29,8 +29,9 @@ use tracing::info;
 use types::{
     error::DagError,
     metered_channel::{channel, Receiver, Sender},
-    Batch, BatchDigest, Empty, PrimaryToWorkerServer, ReconfigureNotification, Transaction,
-    TransactionProto, Transactions, TransactionsServer, WorkerPrimaryMessage, WorkerToWorkerServer,
+    Batch, BatchDigest, Empty, LoadBatch, PrimaryToWorkerServer, ReconfigureNotification,
+    Transaction, TransactionProto, Transactions, TransactionsServer, WorkerPrimaryMessage,
+    WorkerToWorkerServer,
 };
 
 #[cfg(test)]
@@ -106,6 +107,7 @@ impl Worker {
 
         let worker_service = WorkerToWorkerServer::new(WorkerReceiverHandler {
             tx_processor: tx_worker_processor.clone(),
+            tx_unload_batch: tx_unload_batch.clone(),
             store: worker.store.clone(),
         });
         let primary_service = PrimaryToWorkerServer::new(PrimaryReceiverHandler {
@@ -220,6 +222,7 @@ impl Worker {
             channel_metrics,
             endpoint_metrics,
             network.clone(),
+            rx_unload_batch,
         );
         let worker_flow_handles = worker.handle_workers_messages(
             &tx_reconfigure,
@@ -280,6 +283,7 @@ impl Worker {
         channel_metrics: Arc<WorkerChannelMetrics>,
         endpoint_metrics: WorkerEndpointMetrics,
         network: anemo::Network,
+        rx_unload_batch: Receiver<LoadBatch>,
     ) -> Vec<JoinHandle<()>> {
         let (tx_batch_maker, rx_batch_maker) =
             channel(CHANNEL_CAPACITY, &channel_metrics.tx_batch_maker);
@@ -314,6 +318,7 @@ impl Worker {
             self.parameters.max_batch_delay,
             tx_reconfigure.subscribe(),
             /* rx_transaction */ rx_batch_maker,
+            rx_unload_batch,
             /* tx_message */ tx_quorum_waiter,
             node_metrics,
             P2pNetwork::new(network.clone()),
